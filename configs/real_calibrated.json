@@ -1,0 +1,770 @@
+{
+ "label": "REAL-CALIBRATED SIMULATION: real list prices + published benchmark hit rates; outcomes are still simulated",
+ "as_of": "2026-11-20",
+ "sources": {
+  "S_hunter_pricing": {
+   "url": "https://hunter.io/pricing",
+   "accessed": "2026-11-20",
+   "publisher": "Hunter (vendor)",
+   "quote": "Starter ... $49 /month billed monthly ($34 billed yearly, $408/yr) ... 2,000 credits per month (24,000 per year) ... Credit cost: Email found \u00b7 1 credit"
+  },
+  "S_hunter_api": {
+   "url": "https://hunter.io/api-documentation/v2",
+   "accessed": "2026-11-20",
+   "publisher": "Hunter (vendor)",
+   "quote": "Email Finder: A verification is automatically performed on each email found. If no email can be found, no credit is charged."
+  },
+  "S_apollo_pricing": {
+   "url": "https://www.apollo.io/pricing",
+   "accessed": "2026-11-20",
+   "publisher": "Apollo.io (vendor)",
+   "quote": "Basic $49 Per seat per month, billed annually; 30,000 credits per seat per year, granted upfront (no monthly-billing price is shown on the page)"
+  },
+  "S_apollo_credits": {
+   "url": "https://www.apollo.io/pricing/about-credits",
+   "accessed": "2026-11-20",
+   "publisher": "Apollo.io (vendor)",
+   "quote": "You're only charged credits for email addresses that Apollo can verify. (Knowledge base: one credit per verified email for a net-new contact.)"
+  },
+  "S_prospeo_pricing": {
+   "url": "https://prospeo.io/pricing",
+   "accessed": "2026-11-20",
+   "publisher": "Prospeo (vendor)",
+   "quote": "Starter: Monthly Price $49, Yearly Price $441 ($37/mo); Monthly Credits 2000, Yearly Credits 24000. One credit gives you one verified business email."
+  },
+  "S_prospeo_api": {
+   "url": "https://prospeo.io/api-docs/enrich-person",
+   "accessed": "2026-11-20",
+   "publisher": "Prospeo (vendor)",
+   "quote": "Enriching a person record costs 1 credit per email found ... You won't be charged if no results are found."
+  },
+  "S_dropcontact_pricing": {
+   "url": "https://www.dropcontact.com/pricing",
+   "accessed": "2026-11-20",
+   "publisher": "Dropcontact (vendor)",
+   "quote": "Starter 500 credits ... 79 EUR /monthly ... Pay on success ... Native and exclusive email validation (Monthly / Yearly -20%)"
+  },
+  "S_ecb_fx": {
+   "url": "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+   "accessed": "2026-11-20",
+   "publisher": "European Central Bank",
+   "quote": "Euro foreign exchange reference rate 2026-11-19: USD 1.0992"
+  },
+  "S_amf": {
+   "url": "https://anymailfinder.com/email-finder-benchmark",
+   "accessed": "2026-11-20",
+   "publisher": "Anymail Finder (vendor; a participant in its own benchmark, disclosed)",
+   "quote": "14 tools tested on the same 5,000 B2B contacts (US, UK, France, Germany), every returned email verified by BounceBan, ZeroBounce and MillionVerifier; no live send. Per-contact CSV (CC BY 4.0): https://anymailfinder.com/email-finder-benchmark/email-finder-benchmark-data.csv"
+  },
+  "S_orbi": {
+   "url": "https://orbisearch.com/research/email-finder-benchmark",
+   "accessed": "2026-11-20",
+   "publisher": "OrbiSearch (vendor; a participant in its own benchmark)",
+   "quote": "7 email finders tested on the same 288 B2B contacts (NA 95 / EMEA 99 / APAC 94), every returned address re-verified live. Per-contact CSV (CC BY 4.0): https://orbisearch.com/research/email-finder-benchmark-2026.csv"
+  },
+  "S_dropcontact_bench": {
+   "url": "https://www.dropcontact.com/email-finder-benchmark",
+   "accessed": "2026-11-20",
+   "publisher": "Dropcontact (vendor; funded and designed its own benchmark)",
+   "quote": "15 tools, 20,000 contacts, live send counting hard bounces. Base = 17,132 contacts with >=1 email found by any tool. Dropcontact: 9,584 raw (55.9%), 9,402 usable (54.9%). Hunter: 6,665 raw (38.9%), 744 hard bounce (11.2%), 5,570 usable (32.5%). Apollo and Prospeo not tested. Used only to motivate the sensitivity sweep."
+  }
+ },
+ "providers": {
+  "apollo": {
+   "price_usd": {
+    "value": 0.0196,
+    "source": "S_apollo_pricing",
+    "note": "Basic: $588/yr / 30,000 credits; 1 credit per verified email (annual billing is the only price shown)"
+   },
+   "price_usd_annual_billing": {
+    "value": 0.0196,
+    "source": "S_apollo_pricing",
+    "note": "$588/yr / 30,000 credits"
+   },
+   "charge_on_miss": {
+    "value": false,
+    "source": "S_apollo_credits",
+    "note": "charged only for emails Apollo can verify"
+   },
+   "base_hit": {
+    "value": 0.8486,
+    "source": "S_amf",
+    "note": "solved: found_rate / (d + 0.15*(1-d)) with d=0.8578"
+   },
+   "accuracy": {
+    "value": 0.9639,
+    "source": "S_amf",
+    "note": "solved so the model reproduces the benchmark valid rate"
+   },
+   "country_mod": {
+    "US": {
+     "value": 0.0442,
+     "source": "S_amf",
+     "note": "logit(h_US) - logit(h); h_US from found rate 3482/4637; US = all non-.uk/.de/.fr domains (proxy)"
+    },
+    "UK": {
+     "value": -0.6579,
+     "source": "S_amf",
+     "note": "logit(h_UK) - logit(h); h_UK from found rate 102/156"
+    },
+    "DE": {
+     "value": -0.1352,
+     "source": "S_amf",
+     "note": "logit(h_DE) - logit(h); h_DE from found rate 73/100"
+    },
+    "FR": {
+     "value": -0.4806,
+     "source": "S_amf",
+     "note": "logit(h_FR) - logit(h); h_FR from found rate 73/107"
+    },
+    "IN": {
+     "value": -0.0117,
+     "source": "S_orbi",
+     "note": "APAC vs all-region found rate (74/94 vs 227/288); APAC used as a proxy for IN"
+    }
+   },
+   "size_mod": {
+    "1-50": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public size-level benchmark found"
+    },
+    "51-500": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public size-level benchmark found"
+    },
+    "501+": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public size-level benchmark found"
+    }
+   },
+   "seniority_mod": {
+    "ic": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public seniority-level benchmark found"
+    },
+    "manager": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public seniority-level benchmark found"
+    },
+    "exec": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public seniority-level benchmark found"
+    }
+   },
+   "latency_median_s": {
+    "value": 0.35,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   },
+   "latency_sigma": {
+    "value": 0.5,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   },
+   "error_rate": {
+    "value": 0.02,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   },
+   "rate_limit_rate": {
+    "value": 0.03,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   }
+  },
+  "dropcontact": {
+   "price_usd": {
+    "value": 0.173674,
+    "source": "S_dropcontact_pricing",
+    "note": "Starter: EUR 79/month / 500 credits x EUR/USD 1.0992 (S_ecb_fx)"
+   },
+   "price_usd_annual_billing": {
+    "value": 0.138939,
+    "source": "S_dropcontact_pricing",
+    "note": "EUR 79 x (1 - 20% yearly discount) / 500 credits x 1.0992 (S_ecb_fx)"
+   },
+   "charge_on_miss": {
+    "value": false,
+    "source": "S_dropcontact_pricing",
+    "note": "'Pay on success'"
+   },
+   "base_hit": {
+    "value": 0.8479,
+    "source": "S_amf",
+    "note": "solved: found_rate / (d + 0.15*(1-d)) with d=0.8578"
+   },
+   "accuracy": {
+    "value": 0.9833,
+    "source": "S_amf",
+    "note": "solved so the model reproduces the benchmark valid rate"
+   },
+   "country_mod": {
+    "US": {
+     "value": 0.028,
+     "source": "S_amf",
+     "note": "logit(h_US) - logit(h); h_US from found rate 3471/4637; US = all non-.uk/.de/.fr domains (proxy)"
+    },
+    "UK": {
+     "value": -0.6139,
+     "source": "S_amf",
+     "note": "logit(h_UK) - logit(h); h_UK from found rate 103/156"
+    },
+    "DE": {
+     "value": 0.2357,
+     "source": "S_amf",
+     "note": "logit(h_DE) - logit(h); h_DE from found rate 77/100"
+    },
+    "FR": {
+     "value": -0.2814,
+     "source": "S_amf",
+     "note": "logit(h_FR) - logit(h); h_FR from found rate 76/107"
+    },
+    "IN": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "dropcontact is not in the OrbiSearch test; no IN data"
+    }
+   },
+   "size_mod": {
+    "1-50": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public size-level benchmark found"
+    },
+    "51-500": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public size-level benchmark found"
+    },
+    "501+": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public size-level benchmark found"
+    }
+   },
+   "seniority_mod": {
+    "ic": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public seniority-level benchmark found"
+    },
+    "manager": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public seniority-level benchmark found"
+    },
+    "exec": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public seniority-level benchmark found"
+    }
+   },
+   "latency_median_s": {
+    "value": 2.2,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   },
+   "latency_sigma": {
+    "value": 0.4,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   },
+   "error_rate": {
+    "value": 0.01,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   },
+   "rate_limit_rate": {
+    "value": 0.01,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   }
+  },
+  "hunter": {
+   "price_usd": {
+    "value": 0.0245,
+    "source": "S_hunter_pricing",
+    "note": "Starter: $49/month / 2,000 credits; 1 credit per email found"
+   },
+   "price_usd_annual_billing": {
+    "value": 0.017,
+    "source": "S_hunter_pricing",
+    "note": "$408/yr / 24,000 credits"
+   },
+   "charge_on_miss": {
+    "value": false,
+    "source": "S_hunter_api",
+    "note": "no credit charged if no email is found"
+   },
+   "base_hit": {
+    "value": 0.7617,
+    "source": "S_amf",
+    "note": "solved: found_rate / (d + 0.15*(1-d)) with d=0.8578"
+   },
+   "accuracy": {
+    "value": 0.908,
+    "source": "S_amf",
+    "note": "solved so the model reproduces the benchmark valid rate"
+   },
+   "country_mod": {
+    "US": {
+     "value": -0.0026,
+     "source": "S_amf",
+     "note": "logit(h_US) - logit(h); h_US from found rate 3103/4637; US = all non-.uk/.de/.fr domains (proxy)"
+    },
+    "UK": {
+     "value": 0.105,
+     "source": "S_amf",
+     "note": "logit(h_UK) - logit(h); h_UK from found rate 107/156"
+    },
+    "DE": {
+     "value": 0.4264,
+     "source": "S_amf",
+     "note": "logit(h_DE) - logit(h); h_DE from found rate 73/100"
+    },
+    "FR": {
+     "value": -0.357,
+     "source": "S_amf",
+     "note": "logit(h_FR) - logit(h); h_FR from found rate 65/107"
+    },
+    "IN": {
+     "value": -0.6419,
+     "source": "S_orbi",
+     "note": "APAC vs all-region found rate (41/94 vs 165/288); APAC used as a proxy for IN"
+    }
+   },
+   "size_mod": {
+    "1-50": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public size-level benchmark found"
+    },
+    "51-500": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public size-level benchmark found"
+    },
+    "501+": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public size-level benchmark found"
+    }
+   },
+   "seniority_mod": {
+    "ic": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public seniority-level benchmark found"
+    },
+    "manager": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public seniority-level benchmark found"
+    },
+    "exec": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public seniority-level benchmark found"
+    }
+   },
+   "latency_median_s": {
+    "value": 0.8,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   },
+   "latency_sigma": {
+    "value": 0.5,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   },
+   "error_rate": {
+    "value": 0.02,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   },
+   "rate_limit_rate": {
+    "value": 0.02,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   }
+  },
+  "prospeo": {
+   "price_usd": {
+    "value": 0.0245,
+    "source": "S_prospeo_pricing",
+    "note": "Starter: $49/month / 2,000 credits; 1 credit per email found"
+   },
+   "price_usd_annual_billing": {
+    "value": 0.018375,
+    "source": "S_prospeo_pricing",
+    "note": "$441/yr / 24,000 credits"
+   },
+   "charge_on_miss": {
+    "value": false,
+    "source": "S_prospeo_api",
+    "note": "not charged if no results are found"
+   },
+   "base_hit": {
+    "value": 0.5565,
+    "source": "S_amf",
+    "note": "solved: found_rate / (d + 0.15*(1-d)) with d=0.8578"
+   },
+   "accuracy": {
+    "value": 0.9766,
+    "source": "S_amf",
+    "note": "solved so the model reproduces the benchmark valid rate"
+   },
+   "country_mod": {
+    "US": {
+     "value": 0.0235,
+     "source": "S_amf",
+     "note": "logit(h_US) - logit(h); h_US from found rate 2292/4637; US = all non-.uk/.de/.fr domains (proxy)"
+    },
+    "UK": {
+     "value": -0.4781,
+     "source": "S_amf",
+     "note": "logit(h_UK) - logit(h); h_UK from found rate 60/156"
+    },
+    "DE": {
+     "value": -0.1793,
+     "source": "S_amf",
+     "note": "logit(h_DE) - logit(h); h_DE from found rate 45/100"
+    },
+    "FR": {
+     "value": -0.1431,
+     "source": "S_amf",
+     "note": "logit(h_FR) - logit(h); h_FR from found rate 49/107"
+    },
+    "IN": {
+     "value": -0.0409,
+     "source": "S_orbi",
+     "note": "APAC vs all-region found rate (38/94 vs 119/288); APAC used as a proxy for IN"
+    }
+   },
+   "size_mod": {
+    "1-50": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public size-level benchmark found"
+    },
+    "51-500": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public size-level benchmark found"
+    },
+    "501+": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public size-level benchmark found"
+    }
+   },
+   "seniority_mod": {
+    "ic": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public seniority-level benchmark found"
+    },
+    "manager": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public seniority-level benchmark found"
+    },
+    "exec": {
+     "value": 0.0,
+     "source": "ASSUMPTION",
+     "note": "no public seniority-level benchmark found"
+    }
+   },
+   "latency_median_s": {
+    "value": 0.9,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   },
+   "latency_sigma": {
+    "value": 0.6,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   },
+   "error_rate": {
+    "value": 0.03,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   },
+   "rate_limit_rate": {
+    "value": 0.04,
+    "source": "ASSUMPTION",
+    "note": "illustrative repo default"
+   }
+  }
+ },
+ "world": {
+  "discoverable": {
+   "value": 0.8578,
+   "source": "S_amf",
+   "note": "solved by bisection so the model's P(>=1 of 4 providers valid) equals the benchmark's 0.8532"
+  },
+  "catch_all": {
+   "value": 0.0,
+   "source": "ASSUMPTION",
+   "note": "Benchmark 'valid' labels already adjudicate catch-all domains (BounceBan), so unresolvable catch-alls are netted into the valid rates instead of modelled apart"
+  },
+  "segment_noise": {
+   "value": 0.35,
+   "source": "ASSUMPTION",
+   "note": "per-seed logit noise per segment x provider (repo default); stands in for size/seniority heterogeneity that has no public data; swept 0..0.7"
+  },
+  "verify_cost_usd": {
+   "value": 0.0,
+   "source": "ASSUMPTION",
+   "note": "All four vendors bundle verification into the find credit (S_hunter_api, S_apollo_credits, S_prospeo_pricing, S_dropcontact_pricing); an external verifier would add cost"
+  },
+  "country_weights": {
+   "US": {
+    "value": 0.4,
+    "source": "ASSUMPTION",
+    "note": "repo default mix; no public segment mix used"
+   },
+   "UK": {
+    "value": 0.15,
+    "source": "ASSUMPTION",
+    "note": "repo default mix; no public segment mix used"
+   },
+   "DE": {
+    "value": 0.15,
+    "source": "ASSUMPTION",
+    "note": "repo default mix; no public segment mix used"
+   },
+   "FR": {
+    "value": 0.1,
+    "source": "ASSUMPTION",
+    "note": "repo default mix; no public segment mix used"
+   },
+   "IN": {
+    "value": 0.2,
+    "source": "ASSUMPTION",
+    "note": "repo default mix; no public segment mix used"
+   }
+  },
+  "size_weights": {
+   "1-50": {
+    "value": 0.45,
+    "source": "ASSUMPTION",
+    "note": "repo default mix"
+   },
+   "51-500": {
+    "value": 0.35,
+    "source": "ASSUMPTION",
+    "note": "repo default mix"
+   },
+   "501+": {
+    "value": 0.2,
+    "source": "ASSUMPTION",
+    "note": "repo default mix"
+   }
+  },
+  "seniority_weights": {
+   "ic": {
+    "value": 0.55,
+    "source": "ASSUMPTION",
+    "note": "repo default mix"
+   },
+   "manager": {
+    "value": 0.3,
+    "source": "ASSUMPTION",
+    "note": "repo default mix"
+   },
+   "exec": {
+    "value": 0.15,
+    "source": "ASSUMPTION",
+    "note": "repo default mix"
+   }
+  }
+ },
+ "observed": {
+  "amf_n_contacts": {
+   "value": 5000,
+   "source": "S_amf"
+  },
+  "apollo": {
+   "found_rate": {
+    "value": 0.746,
+    "source": "S_amf",
+    "note": "3730/5000 contacts with any email returned"
+   },
+   "valid_rate": {
+    "value": 0.681,
+    "source": "S_amf",
+    "note": "3405/5000 contacts with a verified-valid email"
+   }
+  },
+  "dropcontact": {
+   "found_rate": {
+    "value": 0.7454,
+    "source": "S_amf",
+    "note": "3727/5000 contacts with any email returned"
+   },
+   "valid_rate": {
+    "value": 0.694,
+    "source": "S_amf",
+    "note": "3470/5000 contacts with a verified-valid email"
+   }
+  },
+  "hunter": {
+   "found_rate": {
+    "value": 0.6696,
+    "source": "S_amf",
+    "note": "3348/5000 contacts with any email returned"
+   },
+   "valid_rate": {
+    "value": 0.5762,
+    "source": "S_amf",
+    "note": "2881/5000 contacts with a verified-valid email"
+   }
+  },
+  "prospeo": {
+   "found_rate": {
+    "value": 0.4892,
+    "source": "S_amf",
+    "note": "2446/5000 contacts with any email returned"
+   },
+   "valid_rate": {
+    "value": 0.4524,
+    "source": "S_amf",
+    "note": "2262/5000 contacts with a verified-valid email"
+   }
+  },
+  "union4_valid_rate": {
+   "value": 0.8532,
+   "source": "S_amf",
+   "note": "4266/5000: >=1 of the 4 providers valid"
+  },
+  "union14_valid_rate": {
+   "value": 0.9312,
+   "source": "S_amf",
+   "note": "4656/5000: >=1 of 14 tools valid"
+  },
+  "country_found_rate": {
+   "apollo": {
+    "US": {
+     "value": 0.7509165408669398,
+     "source": "S_amf",
+     "note": "3482/4637"
+    },
+    "UK": {
+     "value": 0.6538461538461539,
+     "source": "S_amf",
+     "note": "102/156"
+    },
+    "DE": {
+     "value": 0.73,
+     "source": "S_amf",
+     "note": "73/100"
+    },
+    "FR": {
+     "value": 0.6822429906542056,
+     "source": "S_amf",
+     "note": "73/107"
+    },
+    "IN": {
+     "value": 0.7872340425531915,
+     "source": "S_orbi",
+     "note": "APAC 74/94 (overall 227/288)"
+    }
+   },
+   "dropcontact": {
+    "US": {
+     "value": 0.748544317446625,
+     "source": "S_amf",
+     "note": "3471/4637"
+    },
+    "UK": {
+     "value": 0.6602564102564102,
+     "source": "S_amf",
+     "note": "103/156"
+    },
+    "DE": {
+     "value": 0.77,
+     "source": "S_amf",
+     "note": "77/100"
+    },
+    "FR": {
+     "value": 0.7102803738317757,
+     "source": "S_amf",
+     "note": "76/107"
+    }
+   },
+   "hunter": {
+    "US": {
+     "value": 0.6691826612033642,
+     "source": "S_amf",
+     "note": "3103/4637"
+    },
+    "UK": {
+     "value": 0.6858974358974359,
+     "source": "S_amf",
+     "note": "107/156"
+    },
+    "DE": {
+     "value": 0.73,
+     "source": "S_amf",
+     "note": "73/100"
+    },
+    "FR": {
+     "value": 0.6074766355140186,
+     "source": "S_amf",
+     "note": "65/107"
+    },
+    "IN": {
+     "value": 0.43617021276595747,
+     "source": "S_orbi",
+     "note": "APAC 41/94 (overall 165/288)"
+    }
+   },
+   "prospeo": {
+    "US": {
+     "value": 0.4942850981237869,
+     "source": "S_amf",
+     "note": "2292/4637"
+    },
+    "UK": {
+     "value": 0.38461538461538464,
+     "source": "S_amf",
+     "note": "60/156"
+    },
+    "DE": {
+     "value": 0.45,
+     "source": "S_amf",
+     "note": "45/100"
+    },
+    "FR": {
+     "value": 0.45794392523364486,
+     "source": "S_amf",
+     "note": "49/107"
+    },
+    "IN": {
+     "value": 0.40425531914893614,
+     "source": "S_orbi",
+     "note": "APAC 38/94 (overall 119/288)"
+    }
+   }
+  }
+ },
+ "fit_check": {
+  "union4_valid_model": {
+   "value": 0.8532,
+   "source": "S_amf",
+   "note": "model-implied, should equal observed union4"
+  },
+  "union14_valid_observed": {
+   "value": 0.9312,
+   "source": "S_amf",
+   "note": "4656/5000: >=1 of 14 tools valid"
+  }
+ }
+}

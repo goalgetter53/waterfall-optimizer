@@ -7,13 +7,84 @@ and a production-style reliability layer underneath.
 
 [![ci](https://img.shields.io/badge/ci-GitHub%20Actions-blue)](.github/workflows/ci.yml)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
-![tests](https://img.shields.io/badge/tests-82%20passed-brightgreen) ![mypy](https://img.shields.io/badge/mypy-strict-blue)
+![tests](https://img.shields.io/badge/tests-87%20passed-brightgreen) ![mypy](https://img.shields.io/badge/mypy-strict-blue)
 
-> **Honesty note.** Every number in this README comes from the **simulation harness**
-> (synthetic contacts with seeded ground truth and simulated providers). The prices, hit
-> rates and latencies are illustrative. They are not production results and not benchmarks
-> of Hunter, Apollo, Prospeo or Dropcontact. The live HTTP adapters exist and are unit-tested
-> against mocked responses, but the router has not been run on real vendor traffic.
+> **Honesty note.** Every number in this README comes from the **simulation harness**.
+> Contacts and provider outcomes are simulated in both result sets.
+> - **Real-calibrated results (section 0):** provider prices are **real public list prices as
+>   of 2026-11-20** (cheapest self-serve paid plan; sources in
+>   [`docs/real_calibration_sources.md`](docs/real_calibration_sources.md)). Hit and accuracy
+>   rates are fitted to the **Anymail Finder Email Finder Benchmark 2026** (5,000 contacts,
+>   per-contact CSV), with an India proxy from the **OrbiSearch August 2026 benchmark**
+>   (288 contacts). Both were published by vendors that took part in their own tests. Company
+>   size and seniority effects, latencies and error rates are still assumptions.
+> - **Illustrative results (section 5):** prices, hit rates and latencies are made up and are
+>   not benchmarks of any vendor.
+>
+> The live HTTP adapters exist and are unit-tested against mocked responses, but **a run on
+> live vendor traffic is still TBD**: there are no vendor API keys here.
+
+## 0. Results with real-world pricing and published hit rates
+
+Same harness, same pipeline and same strategies as section 5. The difference is the world:
+it is calibrated from public inputs ([`configs/real_calibrated.json`](configs/real_calibrated.json),
+where every number cites a source or is marked `ASSUMPTION`). Setup: **20,000 contacts x 5
+seeds**, V = $0.50, ± = 95% Student-t interval across seeds. Full report:
+[`docs/results_real_calibrated/report.md`](docs/results_real_calibrated/report.md).
+
+**Real list prices used** (cheapest self-serve paid plan, accessed 2026-11-20; all four charge
+only when an email is found):
+
+| Provider | Plan | USD per found email | Source |
+|---|---|---|---|
+| Apollo | Basic, $49/seat/mo billed annually, 30,000 credits/yr | $0.0196 | [apollo.io/pricing](https://www.apollo.io/pricing), [credit rules](https://www.apollo.io/pricing/about-credits) |
+| Hunter | Starter, $49/mo, 2,000 credits | $0.0245 | [hunter.io/pricing](https://hunter.io/pricing), [API docs](https://hunter.io/api-documentation/v2) |
+| Prospeo | Starter, $49/mo, 2,000 credits | $0.0245 | [prospeo.io/pricing](https://prospeo.io/pricing), [API docs](https://prospeo.io/api-docs/enrich-person) |
+| Dropcontact | Starter, EUR 79/mo, 500 credits (x 1.0992 ECB EUR/USD, 2026-11-19) | $0.1737 | [dropcontact.com/pricing](https://www.dropcontact.com/pricing) |
+
+**Published hit rates used** (Anymail Finder benchmark, n = 5,000; verified-valid share):
+Apollo 68.1%, Dropcontact 69.4%, Hunter 57.6%, Prospeo 45.2%. At least one of the four is
+valid for 85.3% of contacts.
+
+| Strategy | Cost / verified | Verified coverage | Spend / contact | Net value / contact | Regret vs oracle (20k) |
+|---|---|---|---|---|---|
+| Static waterfall (cheapest first) | $0.0363 ± 0.0005 | 82.6 ± 0.2% | $0.0300 | $0.3830 | $21.7 ± 9.3 |
+| Greedy EV (global rates) | **$0.0245** ± 0.0004 | 80.5 ± 0.2% | $0.0197 | $0.3829 | $24.1 ± 7.2 |
+| Thompson (segment only) | $0.0299 ± 0.0006 | 81.6 ± 0.3% | $0.0244 | $0.3834 | **$14.5 ± 5.5** |
+| Thompson (segment x depth) | $0.0301 ± 0.0017 | 81.5 ± 0.4% | $0.0245 | $0.3831 | $20.0 ± 9.6 |
+| Oracle (true parameters) | $0.0309 ± 0.0013 | 81.9 ± 0.2% | $0.0253 | $0.3841 | 0 |
+
+**What changes with real inputs:**
+
+- **The headline cost cut mostly survives.** Against the cheapest-first static waterfall, the
+  Thompson router lowers cost per verified email by **17.2% (paired per-seed 95% CI
+  ± 4.2 pp)**, down from 20.9% in the illustrative world. Spend per contact is 18.3% lower,
+  at **−1.08 pp** verified coverage.
+- **The learning advantage mostly disappears.** With real prices, every vendor charges only
+  on a find, and the cheapest vendor (Apollo) is also among the best at finding. A static
+  cheapest-first waterfall is then already within **$0.0011 per contact** (0.3%) of the
+  oracle's net value. The bandit closes only 8% of that small gap, which is not
+  statistically distinguishable from zero. Most of the cost cut comes from the **stopping
+  rule**, not from learning: the router skips the $0.17 Dropcontact lookup for the last
+  hard-to-find contacts. Greedy shows this most clearly, with an even lower cost per
+  verified email (−32%) at the same net value.
+- **Every strategy starts with the same provider.** The learned first provider matches the
+  oracle's in 100% of segments: it is Apollo everywhere.
+- **Sensitivity** (±30% hit rates per provider and for all providers together, no country
+  effects, segment noise 0 / 0.7, annual-billing prices; 10k contacts x 5 seeds per
+  variant): the cost-per-verified reduction **stays positive in all 15 sweep runs (14 variants plus the reference)**. It ranges
+  from **0.5 ± 0.5%** when every hit rate is 30% lower (the advantage essentially vanishes)
+  and **6.6 ± 3.3%** when Apollo's hit rate is 30% lower, up to **25.7 ± 0.7%** when every hit
+  rate is 30% higher. Annual-billing prices give 11.6 ± 1.6%. The net-value difference is
+  **not robust**: it stays between −$0.0016 and +$0.0061 per contact and changes sign
+  across variants.
+  See the [sweep table](docs/results_real_calibrated/report.md#sensitivity-sweep-hit-rate-and-heterogeneity-assumptions).
+
+![Cost per verified email, real-calibrated](docs/results_real_calibrated/cost_per_verified.png)
+![Sensitivity](docs/results_real_calibrated/sensitivity.png)
+
+Reproduce with `make simulate-real` (about 12 minutes on 2 cores). Re-derive the calibration
+from the benchmark CSVs with `make calibrate-real`.
 
 ---
 
@@ -46,7 +117,7 @@ On top of that comes operational risk: 429 storms, vendor outages, and retried j
 | Reliability | Per-provider **token buckets**, **circuit breakers** (closed / open / half-open), **retries with exponential backoff and full jitter** (honouring `Retry-After`), a **TTL response cache**, a **cost ledger** with reservations and a hard budget, and **idempotency keys** for batches and charges |
 | Interfaces | CLI `wfo run / simulate / report / generate / serve`. A **FastAPI** endpoint to submit a batch and poll it, with an Idempotency-Key header. An **HMAC-signed webhook** on completion |
 | Evidence | A simulation harness (50k contacts x 5 seeds x 5 strategies x 2 scenarios), a Monte-Carlo oracle for regret, 95% CIs, matplotlib charts and a markdown report generated from `results.json` |
-| Quality | Typed Python 3.11 (`mypy --strict` clean), ruff clean, **82 tests** including Hypothesis property and state-machine tests and fault-injection tests. Makefile, Dockerfile, GitHub Actions CI and 3 ADRs |
+| Quality | Typed Python 3.11 (`mypy --strict` clean), ruff clean, **87 tests** including Hypothesis property and state-machine tests and fault-injection tests. Makefile, Dockerfile, GitHub Actions CI and 3 ADRs |
 
 ## 3. Architecture
 
@@ -134,7 +205,7 @@ and *same* provider outcomes (common random numbers).
 Design trade-offs (UCB vs TS, logistic-regression TS, censoring of errors, catch-all
 handling) are in [ADR 0002](docs/adr/0002-contextual-thompson-sampling-router.md).
 
-## 5. Simulation results (SIMULATION, not production)
+## 5. Illustrative simulation results (made-up provider parameters; kept for reference)
 
 Setup: **50,000 synthetic contacts per run x 5 seeds** (each seed = new world parameters, new
 contacts, new stream order) x 5 strategies x 2 scenarios. That is 2.5M enrichments through
@@ -197,7 +268,7 @@ Full rationale is in [ADR 0001](docs/adr/0001-sqlite-wal-lease-queue.md) (queue)
   router's candidate set. 429s drain the token bucket and back off with full jitter that is
   never shorter than `Retry-After`.
 
-**How it is tested** (82 tests, `pytest` ~11 s):
+**How it is tested** (87 tests, `pytest` ~11 s):
 
 | Test | Kind |
 |---|---|
@@ -226,6 +297,10 @@ make check                    # ruff + mypy --strict + pytest
 make simulate
 make report
 
+# Real-calibrated world (real list prices + published hit rates) + sensitivity sweep
+make simulate-real            # ~12 minutes on 2 cores -> docs/results_real_calibrated/
+make calibrate-real           # re-derive configs/real_calibrated.json from the benchmark CSVs
+
 # API + workers
 .venv/bin/wfo serve --port 8000
 curl -X POST localhost:8000/v1/batches -H 'Content-Type: application/json' \
@@ -249,6 +324,10 @@ current docs and your contract first. The webhook signature is
 
 ## 8. Limitations
 
+- **Real-calibrated is still not live.** Prices are list prices, not contract prices. Hit
+  rates come from vendor-run benchmarks, with country splits on about 100 contacts each and
+  an APAC proxy for India. Size and seniority effects are assumptions. Beyond a shared
+  "findable" latent, outcomes are independent across vendors.
 - **A simulation is not production data.** The synthetic world was *designed* with
   segment-dependent vendor strengths. If real vendors are uniform across segments, there is
   little for a contextual router to learn, and the gap to a static waterfall shrinks. The
@@ -282,5 +361,6 @@ current docs and your contract first. The webhook signature is
 
 ---
 
-MIT (c) 2026 Hussain Singapuri. Simulated provider parameters are illustrative and
-deliberately not tied to any real vendor's pricing or performance.
+MIT (c) 2026 Hussain Singapuri. The illustrative world's provider parameters are not tied to
+any vendor. The real-calibrated world uses public list prices and vendor-published benchmark
+rates (cited in `docs/real_calibration_sources.md`); neither is a measurement of live traffic.

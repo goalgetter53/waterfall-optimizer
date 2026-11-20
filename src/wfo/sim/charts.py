@@ -31,12 +31,16 @@ INK = "#0b0b0b"
 INK_2 = "#52514e"
 GRID = "#e4e3df"
 SUBTITLE = "SIMULATION - synthetic contacts, simulated providers"
+CALIBRATED_SUBTITLE = (
+    "SIMULATION calibrated with real list prices + published hit rates; outcomes simulated"
+)
+_subtitle = [SUBTITLE]
 
 
 def _style(ax: Any, title: str) -> None:
     ax.set_facecolor(SURFACE)
     ax.set_title(title, loc="left", fontsize=12, color=INK, pad=22)
-    ax.text(0, 1.02, SUBTITLE, transform=ax.transAxes, fontsize=8, color=INK_2)
+    ax.text(0, 1.02, _subtitle[0], transform=ax.transAxes, fontsize=8, color=INK_2)
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
     for side in ("left", "bottom"):
@@ -164,8 +168,46 @@ def learning_curves(table: dict[str, Any], path: Path) -> None:
     plt.close(fig)
 
 
+def sensitivity_chart(sweep: dict[str, Any], path: Path) -> None:
+    """Thompson-vs-static reduction in cost per verified email, per sweep variant."""
+    _subtitle[0] = CALIBRATED_SUBTITLE
+    rows = sweep["variants"]
+    fig, ax = plt.subplots(figsize=(8, 0.42 * len(rows) + 1.6), dpi=150)
+    fig.patch.set_facecolor(SURFACE)
+    y = list(range(len(rows)))[::-1]
+    means = [r["thompson_vs_static"]["cpv_reduction_pct"]["mean"] for r in rows]
+    errs = [r["thompson_vs_static"]["cpv_reduction_pct"]["ci95"] for r in rows]
+    colors = [INK_2 if r["key"] == "reference" else COLORS["thompson"] for r in rows]
+    ax.barh(
+        y,
+        means,
+        xerr=errs,
+        color=colors,
+        height=0.6,
+        edgecolor=SURFACE,
+        linewidth=2,
+        error_kw={"ecolor": INK_2, "capsize": 3, "lw": 1},
+    )
+    span = max(abs(m) + e for m, e in zip(means, errs, strict=True)) or 1.0
+    for yi, m, e in zip(y, means, errs, strict=True):
+        x = m + e + span * 0.02 if m >= 0 else m - e - span * 0.02
+        ha = "left" if m >= 0 else "right"
+        ax.text(x, yi, f"{m:.1f}%", va="center", ha=ha, fontsize=8, color=INK)
+    ax.set_yticks(y, [r["label"] for r in rows], fontsize=8)
+    ax.axvline(0, color=INK_2, lw=1)
+    ax.set_xlabel("Cost per verified email: % lower than static (paired, 95% CI)", color=INK_2)
+    lo = min(0.0, min(m - e for m, e in zip(means, errs, strict=True)))
+    ax.set_xlim(lo - span * 0.2, span * 1.25)
+    _style(ax, "Sensitivity: Thompson vs static waterfall")
+    ax.grid(axis="y", visible=False)
+    fig.tight_layout()
+    fig.savefig(path, facecolor=SURFACE)
+    plt.close(fig)
+
+
 def render_all(results: dict[str, Any], out_dir: Path) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
+    _subtitle[0] = CALIBRATED_SUBTITLE if "calibration" in results else SUBTITLE
     table = results["scenarios"]["baseline"]
     paths = {
         "cost_per_verified": out_dir / "cost_per_verified.png",
@@ -178,7 +220,9 @@ def render_all(results: dict[str, Any], out_dir: Path) -> list[Path]:
         table,
         "cost_per_verified",
         "Cost per verified email (lower is better)",
-        "USD per verified email (simulated prices)",
+        "USD per verified email ("
+        + ("real list prices" if "calibration" in results else "simulated prices")
+        + ")",
         paths["cost_per_verified"],
     )
     coverage_vs_cost(table, paths["coverage_vs_cost"])

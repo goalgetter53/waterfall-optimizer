@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +55,16 @@ def headline(results: dict[str, Any]) -> dict[str, float]:
         out["p95_reduction_vs_static_pct"] = 100 * (
             1 - b["p95_latency_s"]["mean"] / s["p95_latency_s"]["mean"]
         )
+        sa = {r["seed"]: r for r in b.get("per_seed", [])}
+        sb = {r["seed"]: r for r in s.get("per_seed", [])}
+        seeds = sorted(set(sa) & set(sb))
+        if len(seeds) > 1:
+            from wfo.sim.stats import mean_ci95
+
+            red = [
+                100 * (1 - sa[k]["cost_per_verified"] / sb[k]["cost_per_verified"]) for k in seeds
+            ]
+            out["cpv_reduction_vs_static_pct_ci95"] = mean_ci95(red)[1]
     if "thompson" in t and "final_regret" in t["thompson"] and "static" in t:
         out["regret_reduction_vs_static_pct"] = 100 * (
             1 - t["thompson"]["final_regret"]["mean"] / t["static"]["final_regret"]["mean"]
@@ -61,16 +72,81 @@ def headline(results: dict[str, Any]) -> dict[str, float]:
     return out
 
 
+def _calibration_section(cal: dict[str, Any]) -> list[str]:
+    lines = [
+        "## Calibration inputs",
+        "",
+        f"From `{cal['file']}` (sources accessed {cal['as_of']}; full citations in "
+        "`docs/real_calibration_sources.md`). Hit rate / accuracy are the world-model "
+        "parameters solved from the benchmark's found and valid rates; "
+        f"P(email discoverable at all) = {cal['discoverable']:.3f}; verification cost "
+        f"${cal['verify_cost_usd']:.3f}; segment noise {cal['segment_noise']}.",
+        "",
+        "| Provider | USD per email (list) | Charged on miss | Hit rate (model) | Accuracy (model) "
+        "| Price source |",
+        "|---|---|---|---|---|---|",
+    ]
+    for name, p in sorted(cal["providers"].items()):
+        src = cal["sources"].get(p["price_source"], {}).get("url", p["price_source"])
+        lines.append(
+            f"| {name} | ${p['price_usd']:.4f} | {'yes' if p['charge_on_miss'] else 'no'} "
+            f"| {p['base_hit']:.3f} | {p['accuracy']:.3f} | {src} |"
+        )
+    return [*lines, ""]
+
+
+def _sensitivity_section(sweep: dict[str, Any]) -> list[str]:
+    c = sweep["config"]
+    lines = [
+        "## Sensitivity sweep (hit-rate and heterogeneity assumptions)",
+        "",
+        f"{c['n_contacts']:,} contacts x seeds {c['seeds']} per variant; strategies static, "
+        "greedy, Thompson (segment x depth), oracle. Differences are paired per seed "
+        "(Thompson minus static), mean ± 95% Student-t interval.",
+        "",
+        "| Variant | CPV reduction vs static | Coverage change | Net value change / contact "
+        "| Greedy CPV reduction | Oracle CPV reduction |",
+        "|---|---|---|---|---|---|",
+    ]
+    for r in sweep["variants"]:
+        t, g, o = r["thompson_vs_static"], r["greedy_vs_static"], r["oracle_vs_static"]
+        cov, net = t["coverage_delta_pp"], t["net_value_delta_usd"]
+        lines.append(
+            f"| {r['label']} | {_ci(t['cpv_reduction_pct'], '{:.1f}')}% "
+            f"| {cov['mean']:+.2f} ± {cov['ci95']:.2f} pp "
+            f"| {net['mean']:+.4f} ± {net['ci95']:.4f} "
+            f"| {_ci(g['cpv_reduction_pct'], '{:.1f}')}% "
+            f"| {_ci(o['cpv_reduction_pct'], '{:.1f}')}% |"
+        )
+    return [*lines, "", "![Sensitivity](sensitivity.png)", ""]
+
+
 def render_report(results: dict[str, Any], out_dir: Path) -> Path:
     cfg = results["config"]
     base = results["scenarios"]["baseline"]
+    cal = results.get("calibration")
+    if cal is not None:
+        title = "# Simulation report: waterfall-optimizer (real-calibrated world)"
+        banner = (
+            "> **SIMULATION, CALIBRATED WITH REAL PUBLIC INPUTS.** Provider prices are public "
+            f"list prices (accessed {cal['as_of']}); hit and accuracy rates are fitted to "
+            "published, vendor-run benchmarks. Contacts and provider outcomes are still "
+            "simulated, latencies and error rates are illustrative, and no live vendor "
+            "traffic was used."
+        )
+    else:
+        title = "# Simulation report: waterfall-optimizer"
+        banner = (
+            "> **SIMULATION ONLY.** Synthetic contacts with seeded ground truth and simulated "
+            "providers whose prices, hit rates, latencies and error rates are illustrative. "
+            "These are not production results and not benchmarks of any real vendor."
+        )
     lines = [
-        "# Simulation report: waterfall-optimizer",
+        title,
         "",
-        "> **SIMULATION ONLY.** Synthetic contacts with seeded ground truth and simulated "
-        "providers whose prices, hit rates, latencies and error rates are illustrative. "
-        "These are not production results and not benchmarks of any real vendor.",
+        banner,
         "",
+        *(_calibration_section(cal) if cal is not None else []),
         "## Setup",
         "",
         f"- Contacts per run: **{cfg['n_contacts']:,}**; seeds: **{cfg['seeds']}** "
@@ -96,8 +172,10 @@ def render_report(results: dict[str, Any], out_dir: Path) -> Path:
     if h:
         lines += ["### Headline comparisons (Thompson segment x depth vs static waterfall)", ""]
         if "cpv_reduction_vs_static_pct" in h:
+            ci = h.get("cpv_reduction_vs_static_pct_ci95")
             lines.append(
                 f"- Cost per verified email: **{h['cpv_reduction_vs_static_pct']:.1f}% lower**"
+                + ("" if ci is None else f" (paired per-seed 95% CI ± {ci:.1f} pp)")
             )
             lines.append(
                 f"- Verified coverage change: **{h['coverage_delta_vs_static_pp']:+.2f} "
@@ -142,6 +220,11 @@ def render_report(results: dict[str, Any], out_dir: Path) -> Path:
         "",
         "![p95 latency](p95_latency.png)",
         "",
+    ]
+    sens = out_dir / "sensitivity.json"
+    if cal is not None and sens.exists():
+        lines += _sensitivity_section(json.loads(sens.read_text()))
+    lines += [
         "## Reading these results",
         "",
         "- `thompson` (segment x depth) and `thompson-flat` (segment only) are statistically "
@@ -150,9 +233,17 @@ def render_report(results: dict[str, Any], out_dir: Path) -> Path:
         "- The objective is **net value = V x verified - spend**, not raw cost per verified. "
         "A router that calls only the single best provider gets a low cost per verified "
         "email by giving up coverage; the table shows both so that trade-off is visible.",
-        "- The synthetic world was designed with segment-dependent provider strengths. If "
-        "real vendors were uniform across segments, a contextual router would have little "
-        "to learn and the gap to a static waterfall would shrink.",
+        (
+            "- In this calibrated world, segment structure comes only from small per-country "
+            "benchmark splits plus assumed noise, and every vendor is pay-on-found. A static "
+            "cheapest-first waterfall is then already close to the oracle in net value, so "
+            "most of the cost-per-verified gain comes from the stopping rule (skipping the "
+            "expensive last call), not from per-segment learning."
+            if cal is not None
+            else "- The synthetic world was designed with segment-dependent provider strengths. "
+            "If real vendors were uniform across segments, a contextual router would have "
+            "little to learn and the gap to a static waterfall would shrink."
+        ),
         "",
     ]
     path = out_dir / "report.md"

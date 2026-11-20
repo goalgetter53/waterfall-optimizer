@@ -39,6 +39,7 @@ def _cmd_simulate(args: argparse.Namespace) -> int:
         budget_usd=args.budget,
         fault_scenario=not args.no_faults,
         workers=args.workers,
+        world_config=args.world,
     )
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -48,6 +49,44 @@ def _cmd_simulate(args: argparse.Namespace) -> int:
     report = render_report(results, out)
     print(json.dumps(headline(results), indent=2))
     print(f"wrote {out / 'results.json'}, charts and {report}")
+    return 0
+
+
+def _cmd_sensitivity(args: argparse.Namespace) -> int:
+    from wfo.sim.calibration import load
+    from wfo.sim.charts import sensitivity_chart
+    from wfo.sim.harness import SimConfig
+    from wfo.sim.report import render_report
+    from wfo.sim.sensitivity import default_variants, run_sweep
+
+    providers = sorted(s.name for s in load(args.world).specs)
+    variants = default_variants(providers, args.scale)
+    if args.only:
+        keep = set(args.only.split(","))
+        variants = [v for v in variants if v.key in keep]
+    cfg = SimConfig(
+        n_contacts=args.contacts,
+        seeds=tuple(range(1, args.seeds + 1)),
+        value_per_verified=args.value,
+        workers=args.workers,
+        world_config=args.world,
+    )
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    sweep = run_sweep(cfg, variants)
+    (out / "sensitivity.json").write_text(json.dumps(sweep, indent=1))
+    sensitivity_chart(sweep, out / "sensitivity.png")
+    results_path = out / "results.json"
+    if results_path.exists():
+        render_report(json.loads(results_path.read_text()), out)
+    for row in sweep["variants"]:
+        d = row["thompson_vs_static"]["cpv_reduction_pct"]
+        n = row["thompson_vs_static"]["net_value_delta_usd"]
+        print(
+            f"{row['key']:22s} cpv -{d['mean']:.1f}% ± {d['ci95']:.1f}  "
+            f"net/contact {n['mean']:+.4f} ± {n['ci95']:.4f}"
+        )
+    print(f"wrote {out / 'sensitivity.json'} and {out / 'sensitivity.png'}")
     return 0
 
 
@@ -172,7 +211,21 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--workers", type=int, default=2)
     s.add_argument("--no-faults", action="store_true", help="skip the outage scenario")
     s.add_argument("--out", default="docs/results")
+    s.add_argument(
+        "--world", default=None, help="calibration JSON (e.g. configs/real_calibrated.json)"
+    )
     s.set_defaults(func=_cmd_simulate)
+
+    sw = sub.add_parser("sensitivity", help="hit-rate / heterogeneity sweep on a calibrated world")
+    sw.add_argument("--world", default="configs/real_calibrated.json")
+    sw.add_argument("--contacts", type=int, default=10_000)
+    sw.add_argument("--seeds", type=int, default=3)
+    sw.add_argument("--value", type=float, default=0.50)
+    sw.add_argument("--workers", type=int, default=2)
+    sw.add_argument("--scale", type=float, default=0.30, help="hit-rate perturbation, e.g. 0.3")
+    sw.add_argument("--only", default=None, help="comma-separated variant keys")
+    sw.add_argument("--out", default="docs/results_real_calibrated")
+    sw.set_defaults(func=_cmd_sensitivity)
 
     r = sub.add_parser("report", help="re-render charts + markdown from results.json")
     r.add_argument("--results", default="docs/results/results.json")

@@ -11,7 +11,7 @@ import asyncio
 import random
 import time
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -23,6 +23,8 @@ from wfo.models import Segment, Verification
 from wfo.pipeline import EnrichmentPipeline, PipelineConfig, build_envelopes
 from wfo.providers.simulated import build_simulated_providers
 from wfo.routing import CostModel, Router, SequenceRouter, ThompsonRouter, make_router
+from wfo.sim.calibration import Calibration
+from wfo.sim.calibration import load as load_calibration
 from wfo.sim.oracle import best_sequences
 from wfo.sim.stats import mean_ci95, percentile
 from wfo.sim.world import SyntheticWorld
@@ -45,6 +47,38 @@ class SimConfig:
     fault_scenario: bool = True
     """Also run each strategy with a hard 'apollo' outage over 30-50% of the stream."""
     workers: int = 2
+    world_config: str | None = None
+    """Path to a calibration JSON (e.g. configs/real_calibrated.json); None = illustrative."""
+    hit_multipliers: dict[str, float] = field(default_factory=dict)
+    segment_noise: float | None = None
+    country_effects: bool = True
+    price_set: str = "list"
+    """'list' (cheapest self-serve plan as published) or 'annual' (annual-billing prices)."""
+
+
+def calibration_for(cfg: SimConfig) -> Calibration | None:
+    if cfg.world_config is None:
+        return None
+    cal = load_calibration(cfg.world_config).with_overrides(
+        cfg.hit_multipliers, cfg.segment_noise, cfg.country_effects
+    )
+    if cfg.price_set == "annual":
+        prices = {
+            n: float(p["price_usd_annual_billing"]["value"])
+            for n, p in cal.raw["providers"].items()
+        }
+        cal = replace(cal, specs=tuple(replace(s, cost_per_call=prices[s.name]) for s in cal.specs))
+    elif cfg.price_set != "list":
+        raise ValueError(f"unknown price_set {cfg.price_set!r}")
+    return cal
+
+
+def build_world(seed: int, cfg: SimConfig) -> tuple[SyntheticWorld, float]:
+    """World for one seed plus the per-check verification cost."""
+    cal = calibration_for(cfg)
+    if cal is None:
+        return SyntheticWorld(seed), VERIFY_COST
+    return SyntheticWorld(seed, cal.specs, cal.segment_noise, cal.model), cal.verify_cost
 
 
 @dataclass(slots=True)
@@ -95,7 +129,7 @@ def _first_choice_agreement(
 
 async def _run_async(strategy: str, seed: int, cfg: SimConfig, scenario: str) -> RunSummary:
     t0 = time.perf_counter()
-    world = SyntheticWorld(seed)
+    world, verify_cost = build_world(seed, cfg)
     contacts = world.generate_contacts(cfg.n_contacts)
     clock = VirtualClock()
     providers = build_simulated_providers(world, clock)
@@ -103,15 +137,15 @@ async def _run_async(strategy: str, seed: int, cfg: SimConfig, scenario: str) ->
     if scenario == "apollo_outage":
         lo, hi = int(0.3 * cfg.n_contacts), int(0.5 * cfg.n_contacts)
         providers["apollo"].outage_fn = lambda: lo <= position[0] < hi
-    verifier = SimulatedVerifier(world, clock, cost_per_check=VERIFY_COST)
+    verifier = SimulatedVerifier(world, clock, cost_per_check=verify_cost)
     costs = CostModel(
         {n: p.cost_per_call for n, p in providers.items()},
-        VERIFY_COST,
+        verify_cost,
         {n: p.charge_on_miss for n, p in providers.items()},
     )
     oracle_seq: dict[str, list[str]] = {}
     if strategy == "oracle" or strategy.startswith("thompson"):
-        oracle_seq, _ = best_sequences(world, cfg.value_per_verified, VERIFY_COST, cfg.oracle_draws)
+        oracle_seq, _ = best_sequences(world, cfg.value_per_verified, verify_cost, cfg.oracle_draws)
     router: Router
     if strategy == "oracle":
         router = SequenceRouter(oracle_seq)
@@ -283,4 +317,26 @@ def simulate(cfg: SimConfig) -> dict[str, Any]:
     result = aggregate(runs, cfg)
     result["wall_clock_s"] = time.perf_counter() - t0
     result["label"] = "SIMULATION - synthetic contacts and simulated providers; not production data"
+    cal = calibration_for(cfg)
+    if cal is not None:
+        result["label"] = "SIMULATION (real-calibrated) - " + str(cal.raw["label"])
+        result["calibration"] = {
+            "file": cfg.world_config,
+            "as_of": cal.as_of,
+            "verify_cost_usd": cal.verify_cost,
+            "segment_noise": cal.segment_noise,
+            "discoverable": cal.model.discoverable_base,
+            "providers": {
+                s.name: {
+                    "price_usd": s.cost_per_call,
+                    "charge_on_miss": s.charge_on_miss,
+                    "base_hit": s.base_hit,
+                    "accuracy": s.accuracy,
+                    "hit_multiplier": s.hit_multiplier,
+                    "price_source": cal.raw["providers"][s.name]["price_usd"]["source"],
+                }
+                for s in cal.specs
+            },
+            "sources": cal.raw["sources"],
+        }
     return result

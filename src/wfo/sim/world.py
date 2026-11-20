@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from statistics import NormalDist
 
 from wfo.models import COUNTRIES, SENIORITIES, SIZE_BANDS, Contact, Segment, all_segments
@@ -53,6 +53,8 @@ class SimProviderSpec:
     latency_sigma: float
     error_rate: float
     rate_limit_rate: float
+    hit_multiplier: float = 1.0
+    """Sensitivity knob: scales every segment hit rate (capped at 0.99)."""
 
 
 DEFAULT_SPECS: tuple[SimProviderSpec, ...] = (
@@ -123,6 +125,33 @@ _CA_COUNTRY = {"US": 0.0, "UK": 0.1, "DE": 0.3, "FR": 0.3, "IN": -0.2}
 _COUNTRY_W = (0.40, 0.15, 0.15, 0.10, 0.20)
 _SIZE_W = (0.45, 0.35, 0.20)
 _SEN_W = (0.55, 0.30, 0.15)
+
+
+@dataclass(frozen=True, slots=True)
+class WorldModel:
+    """Contact-level latents and segment mix. Defaults are the illustrative world."""
+
+    discoverable_base: float = 0.82
+    d_country: dict[str, float] = field(default_factory=lambda: dict(_D_COUNTRY))
+    d_size: dict[str, float] = field(default_factory=lambda: dict(_D_SIZE))
+    d_seniority: dict[str, float] = field(default_factory=lambda: dict(_D_SEN))
+    catch_all_base: float = 0.12
+    ca_size: dict[str, float] = field(default_factory=lambda: dict(_CA_SIZE))
+    ca_country: dict[str, float] = field(default_factory=lambda: dict(_CA_COUNTRY))
+    country_weights: tuple[float, ...] = _COUNTRY_W
+    size_weights: tuple[float, ...] = _SIZE_W
+    seniority_weights: tuple[float, ...] = _SEN_W
+
+
+def _latent(base: float, *mods: float) -> float:
+    if base <= 0.0:
+        return 0.0
+    if base >= 1.0:
+        return 1.0
+    return _sigmoid(_logit(base) + sum(mods))
+
+
+DEFAULT_MODEL = WorldModel()
 _FIRST = (
     "ana",
     "ben",
@@ -190,16 +219,22 @@ class SyntheticWorld:
         seed: int,
         specs: tuple[SimProviderSpec, ...] = DEFAULT_SPECS,
         segment_noise: float = 0.35,
+        model: WorldModel = DEFAULT_MODEL,
     ) -> None:
         self.seed = seed
         self.specs = {s.name: s for s in specs}
+        self.model = model
         rng = random.Random(f"world:{seed}")
         self.params: dict[str, SegmentParams] = {}
+        m = model
         for seg in all_segments():
-            d = _sigmoid(
-                _logit(0.82) + _D_COUNTRY[seg.country] + _D_SIZE[seg.size] + _D_SEN[seg.seniority]
+            d = _latent(
+                m.discoverable_base,
+                m.d_country[seg.country],
+                m.d_size[seg.size],
+                m.d_seniority[seg.seniority],
             )
-            ca = _sigmoid(_logit(0.12) + _CA_SIZE[seg.size] + _CA_COUNTRY[seg.country])
+            ca = _latent(m.catch_all_base, m.ca_size[seg.size], m.ca_country[seg.country])
             hit: dict[str, float] = {}
             for s in specs:
                 z = (
@@ -209,7 +244,10 @@ class SyntheticWorld:
                     + s.seniority_mod[seg.seniority]
                     + rng.gauss(0.0, segment_noise)
                 )
-                hit[s.name] = _sigmoid(z)
+                h = _sigmoid(z)
+                if s.hit_multiplier != 1.0:
+                    h = min(0.99, h * s.hit_multiplier)
+                hit[s.name] = h
             self.params[seg.key] = SegmentParams(d, ca, hit, {s.name: s.accuracy for s in specs})
 
     # ---- deterministic uniforms (common random numbers across strategies) ----
@@ -237,9 +275,9 @@ class SyntheticWorld:
         sizes = {"1-50": (2, 50), "51-500": (51, 500), "501+": (501, 20000)}
         out: list[Contact] = []
         for i in range(n):
-            country = rng.choices(COUNTRIES, _COUNTRY_W)[0]
-            band = rng.choices(SIZE_BANDS, _SIZE_W)[0]
-            seniority = rng.choices(SENIORITIES, _SEN_W)[0]
+            country = rng.choices(COUNTRIES, self.model.country_weights)[0]
+            band = rng.choices(SIZE_BANDS, self.model.size_weights)[0]
+            seniority = rng.choices(SENIORITIES, self.model.seniority_weights)[0]
             lo, hi = sizes[band]
             out.append(
                 Contact(
